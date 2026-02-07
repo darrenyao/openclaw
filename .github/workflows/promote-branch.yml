@@ -90,10 +90,35 @@ jobs:
               ;;
           esac
 
+  # Ensure target branch exists (create from main if not)
+  ensure-target-branch:
+    name: Ensure Target Branch
+    needs: determine-target
+    if: needs.determine-target.outputs.should_promote == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create target branch if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET="${{ needs.determine-target.outputs.target }}"
+
+          if git ls-remote --exit-code origin "refs/heads/$TARGET" >/dev/null 2>&1; then
+            echo "Branch '$TARGET' already exists"
+          else
+            echo "Branch '$TARGET' does not exist — creating from main"
+            git push origin "origin/main:refs/heads/$TARGET"
+          fi
+
   # Run stage-appropriate tests
   run-tests:
     name: Run Tests
-    needs: determine-target
+    needs: [determine-target, ensure-target-branch]
     if: ${{ needs.determine-target.outputs.should_promote == 'true' && !inputs.skip_tests }}
     uses: ./.github/workflows/testing-strategy.yml
     with:
@@ -104,7 +129,7 @@ jobs:
   # Create promotion PR
   create-promotion-pr:
     name: Create Promotion PR
-    needs: [determine-target, run-tests]
+    needs: [determine-target, ensure-target-branch, run-tests]
     if: |
       always() &&
       needs.determine-target.outputs.should_promote == 'true' &&
