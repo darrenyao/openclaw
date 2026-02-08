@@ -57,7 +57,8 @@ export async function replyText(params: {
       content,
     });
     return true;
-  } catch {
+  } catch (err) {
+    console.error(`[dingtalk] replyText failed:`, err);
     return false;
   }
 }

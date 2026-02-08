@@ -32,7 +32,13 @@ export const dingtalkPlugin: ChannelPlugin<ResolvedDingTalkAccount> = {
     reactions: false,
     threads: false,
     polls: false,
-    blockStreaming: false,
+    blockStreaming: true,
+  },
+  streaming: {
+    blockStreamingCoalesceDefaults: {
+      minChars: 100,
+      idleMs: 500,
+    },
   },
   reload: { configPrefixes: ["channels.dingtalk"] },
   config: {
