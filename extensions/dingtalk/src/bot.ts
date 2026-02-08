@@ -1,8 +1,11 @@
-import type { OpenClawConfig, RuntimeEnv } from "openclaw/plugin-sdk";
+import type { OpenClawConfig, ReplyPayload, RuntimeEnv } from "openclaw/plugin-sdk";
+import { createReplyPrefixContext } from "openclaw/plugin-sdk";
 import type { DingTalkMessageContext, ResolvedDingTalkAccount } from "./types.js";
 import { resolveDingTalkAccount } from "./accounts.js";
 import { getDingTalkRuntime } from "./runtime.js";
-import { replyText } from "./send.js";
+import { replyCard, finishCard, updateCard } from "./send.js";
+
+const DEFAULT_CARD_TEMPLATE_ID = "4b6e421f-5300-4ba4-bb0b-0fcea69051f0.schema";
 
 /**
  * Handle an incoming DingTalk message and dispatch to the OpenClaw agent.
@@ -123,10 +126,13 @@ export async function handleDingTalkMessage(params: {
       OriginatingTo: dingtalkTo,
     });
 
-    // Build a reply dispatcher that sends replies back via DingTalk AI Interaction API
-    const dispatcher = createDingTalkReplyDispatcher({
+    // Build a proper ReplyDispatcher via createReplyDispatcherWithTyping
+    const { dispatcher, replyOptions, finalizeCard } = createDingTalkReplyDispatcher({
+      cfg,
       account,
       conversationToken: ctx.conversationToken,
+      agentId: route.agentId ?? "main",
+      runtime,
     });
 
     log(`dingtalk[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);
@@ -135,8 +141,11 @@ export async function handleDingTalkMessage(params: {
       ctx: ctxPayload,
       cfg,
       dispatcher,
-      replyOptions: {},
+      replyOptions,
     });
+
+    // Finalize the AI Card streaming session after all replies are dispatched
+    await finalizeCard();
 
     log(
       `dingtalk[${account.accountId}]: dispatch complete (queuedFinal=${queuedFinal}, replies=${counts.final})`,
@@ -147,23 +156,101 @@ export async function handleDingTalkMessage(params: {
 }
 
 /**
- * Create a reply dispatcher that sends text back via DingTalk.
+ * Create a ReplyDispatcher that sends replies back via DingTalk AI Interaction API.
+ * Follows the same pattern as Feishu's reply dispatcher.
  */
 function createDingTalkReplyDispatcher(params: {
+  cfg: OpenClawConfig;
   account: ResolvedDingTalkAccount;
   conversationToken: string;
+  agentId: string;
+  runtime?: RuntimeEnv;
 }) {
-  const { account, conversationToken } = params;
+  const { cfg, account, conversationToken, agentId, runtime } = params;
+  const core = getDingTalkRuntime();
   const clientId = account.clientId ?? "";
   const clientSecret = account.clientSecret ?? "";
+  const templateId = account.config.cardTemplateId ?? DEFAULT_CARD_TEMPLATE_ID;
 
-  return async (text: string) => {
-    await replyText({
+  const prefixContext = createReplyPrefixContext({ cfg, agentId });
+
+  // Streaming AI Card state: accumulate text across multiple deliver() calls,
+  // then finalize after dispatch completes.
+  let cardInitialized = false;
+  let accumulatedText = "";
+
+  const { dispatcher, replyOptions } = core.channel.reply.createReplyDispatcherWithTyping({
+    responsePrefix: prefixContext.responsePrefix,
+    responsePrefixContextProvider: prefixContext.responsePrefixContextProvider,
+    humanDelay: core.channel.reply.resolveHumanDelayConfig(cfg, agentId),
+    deliver: async (payload: ReplyPayload) => {
+      const text = payload.text ?? "";
+      if (!text.trim()) return;
+
+      accumulatedText += text;
+
+      // DingTalk AI Assistant mode: reply (init card) → update* (stream) → finish
+      if (!cardInitialized) {
+        const ok = await replyCard({
+          clientId,
+          clientSecret,
+          conversationToken,
+          card: {
+            templateId,
+            cardData: { config: { autoLayout: true } },
+            options: { componentTag: "staticComponent" },
+          },
+        });
+        if (!ok) {
+          runtime?.error?.(`dingtalk[${account.accountId}]: replyCard (init) failed`);
+          return;
+        }
+        cardInitialized = true;
+      }
+
+      // Push streaming update (not finalized yet)
+      await updateCard({
+        clientId,
+        clientSecret,
+        conversationToken,
+        card: {
+          templateId,
+          cardData: { key: "result", value: accumulatedText, isFinalize: false },
+          options: { componentTag: "streamingComponent" },
+        },
+      });
+    },
+    onError: (err, info) => {
+      runtime?.error?.(`dingtalk[${account.accountId}]: ${info.kind} reply failed: ${String(err)}`);
+    },
+  });
+
+  // Called after dispatchReplyFromConfig completes to finalize the AI Card
+  const finalizeCard = async () => {
+    if (!cardInitialized) return;
+    // Send final update with isFinalize: true
+    await updateCard({
       clientId,
       clientSecret,
       conversationToken,
-      content: text,
-      contentType: "markdown",
+      card: {
+        templateId,
+        cardData: { key: "result", value: accumulatedText, isFinalize: true },
+        options: { componentTag: "streamingComponent" },
+      },
     });
+    await finishCard({ clientId, clientSecret, conversationToken });
+    runtime?.log?.(
+      `dingtalk[${account.accountId}]: AI Card finalized (len=${accumulatedText.length})`,
+    );
+  };
+
+  return {
+    dispatcher,
+    replyOptions: {
+      ...replyOptions,
+      onModelSelected: prefixContext.onModelSelected,
+    },
+    finalizeCard,
   };
 }

@@ -48,6 +48,9 @@ async function monitorSingleAccount(params: {
       const data = JSON.parse(res.data);
       // In graph API mode, body is nested; in robot mode, data is the message directly
       const body = typeof data.body === "string" ? JSON.parse(data.body) : (data.body ?? data);
+      log(
+        `dingtalk[${accountId}]: incoming message from ${body.sender_id ?? body.senderStaffId ?? "?"}`,
+      );
 
       void handleDingTalkMessage({
         cfg,
