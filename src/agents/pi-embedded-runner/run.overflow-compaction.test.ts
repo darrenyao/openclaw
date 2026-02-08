@@ -88,6 +88,7 @@ vi.mock("../failover-error.js", () => ({
 
 vi.mock("../usage.js", () => ({
   normalizeUsage: vi.fn(() => undefined),
+  hasNonzeroUsage: vi.fn(() => false),
 }));
 
 vi.mock("./lanes.js", () => ({
@@ -140,6 +141,7 @@ vi.mock("../pi-embedded-helpers.js", async () => {
     isBillingAssistantError: vi.fn(() => false),
     classifyFailoverReason: vi.fn(() => null),
     formatAssistantErrorText: vi.fn(() => ""),
+    parseImageSizeError: vi.fn(() => null),
     pickFallbackThinkingLevel: vi.fn(() => null),
     isTimeoutErrorMessage: vi.fn(() => false),
     parseImageDimensionError: vi.fn(() => null),
@@ -322,5 +324,53 @@ describe("overflow compaction in run loop", () => {
     expect(mockedCompactDirect).not.toHaveBeenCalled();
     expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(1);
     expect(result.meta.error?.kind).toBe("compaction_failure");
+  });
+
+  it("retries after successful compaction on assistant context overflow errors", async () => {
+    mockedRunEmbeddedAttempt
+      .mockResolvedValueOnce(
+        makeAttemptResult({
+          promptError: null,
+          lastAssistant: {
+            stopReason: "error",
+            errorMessage: "request_too_large: Request size exceeds model context window",
+          } as EmbeddedRunAttemptResult["lastAssistant"],
+        }),
+      )
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
+
+    mockedCompactDirect.mockResolvedValueOnce({
+      ok: true,
+      compacted: true,
+      result: {
+        summary: "Compacted session",
+        firstKeptEntryId: "entry-5",
+        tokensBefore: 150000,
+      },
+    });
+
+    const result = await runEmbeddedPiAgent(baseParams);
+
+    expect(mockedCompactDirect).toHaveBeenCalledTimes(1);
+    expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(2);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("source=assistantError"));
+    expect(result.meta.error).toBeUndefined();
+  });
+
+  it("does not treat stale assistant overflow as current-attempt overflow when promptError is non-overflow", async () => {
+    mockedRunEmbeddedAttempt.mockResolvedValue(
+      makeAttemptResult({
+        promptError: new Error("transport disconnected"),
+        lastAssistant: {
+          stopReason: "error",
+          errorMessage: "request_too_large: Request size exceeds model context window",
+        } as EmbeddedRunAttemptResult["lastAssistant"],
+      }),
+    );
+
+    await expect(runEmbeddedPiAgent(baseParams)).rejects.toThrow("transport disconnected");
+
+    expect(mockedCompactDirect).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalledWith(expect.stringContaining("source=assistantError"));
   });
 });

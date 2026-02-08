@@ -37,6 +37,7 @@ export async function updateSessionStoreAfterAgentRun(params: {
   } = params;
 
   const usage = result.meta.agentMeta?.usage;
+  const compactionsThisRun = Math.max(0, result.meta.agentMeta?.compactionCount ?? 0);
   const modelUsed = result.meta.agentMeta?.model ?? fallbackModel ?? defaultModel;
   const providerUsed = result.meta.agentMeta?.provider ?? fallbackProvider ?? defaultProvider;
   const contextTokens =
@@ -68,6 +69,9 @@ export async function updateSessionStoreAfterAgentRun(params: {
     next.inputTokens = input;
     next.outputTokens = output;
     next.totalTokens = promptTokens > 0 ? promptTokens : (usage.total ?? input);
+  }
+  if (compactionsThisRun > 0) {
+    next.compactionCount = (entry.compactionCount ?? 0) + compactionsThisRun;
   }
   sessionStore[sessionKey] = next;
   await updateSessionStore(storePath, (store) => {
