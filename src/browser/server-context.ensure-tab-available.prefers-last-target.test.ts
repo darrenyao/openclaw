@@ -140,7 +140,7 @@ describe("browser server-context ensureTabAvailable", () => {
       ], // 3rd listTabs
     ];
 
-    fetchMock.mockImplementation(async (url: unknown, init?: unknown) => {
+    fetchMock.mockImplementation(async (url: unknown) => {
       const u = String(url);
       if (u.includes("/json/list")) {
         const next = responses.shift();
