@@ -111,13 +111,87 @@ describe("browser server-context ensureTabAvailable", () => {
     expect(chosen.targetId).toBe("A");
   });
 
-  it("returns a descriptive message when no extension tabs are attached", async () => {
-    const responses = [[]];
-    stubChromeJsonList(responses);
-    const state = makeBrowserState();
+  it("auto-creates a tab via openTab when no extension tabs are attached", async () => {
+    const fetchMock = vi.fn();
+    // 1st listTabs(): empty (triggers openTab)
+    // openTab issues Target.createTarget via CDP then polls listTabs, so we need:
+    //   - a PUT /json/new response for the fallback path
+    //   - 2nd listTabs(): now has the created tab
+    //   - 3rd listTabs(): used by ensureTabAvailable's second call
+    const responses: Array<unknown[]> = [
+      [], // 1st listTabs: empty
+      [
+        {
+          id: "NEW1",
+          type: "page",
+          url: "about:blank",
+          title: "",
+          webSocketDebuggerUrl: "ws://x/new1",
+        },
+      ], // 2nd listTabs (after openTab)
+      [
+        {
+          id: "NEW1",
+          type: "page",
+          url: "about:blank",
+          title: "",
+          webSocketDebuggerUrl: "ws://x/new1",
+        },
+      ], // 3rd listTabs
+    ];
+
+    fetchMock.mockImplementation(async (url: unknown, init?: unknown) => {
+      const u = String(url);
+      if (u.includes("/json/list")) {
+        const next = responses.shift();
+        if (!next) {
+          throw new Error("no more responses");
+        }
+        return { ok: true, json: async () => next } as unknown as Response;
+      }
+      // createTargetViaCdp path — simulate success
+      if (u.includes("/json/new")) {
+        return {
+          ok: true,
+          json: async () => ({ id: "NEW1", type: "page", url: "about:blank", title: "" }),
+        } as unknown as Response;
+      }
+      throw new Error(`unexpected fetch: ${u}`);
+    });
+
+    global.fetch = fetchMock;
+
+    const state: BrowserServerState = {
+      // oxlint-disable-next-line typescript/no-explicit-any
+      server: null as any,
+      port: 0,
+      resolved: {
+        enabled: true,
+        controlPort: 18791,
+        cdpProtocol: "http",
+        cdpHost: "127.0.0.1",
+        cdpIsLoopback: true,
+        color: "#FF4500",
+        headless: true,
+        noSandbox: false,
+        attachOnly: false,
+        defaultProfile: "chrome",
+        profiles: {
+          chrome: {
+            driver: "extension",
+            cdpUrl: "http://127.0.0.1:18792",
+            cdpPort: 18792,
+            color: "#00AA00",
+          },
+          openclaw: { cdpPort: 18800, color: "#FF4500" },
+        },
+      },
+      profiles: new Map(),
+    };
 
     const ctx = createBrowserRouteContext({ getState: () => state });
     const chrome = ctx.forProfile("chrome");
-    await expect(chrome.ensureTabAvailable()).rejects.toThrow(/no attached Chrome tabs/i);
+    const tab = await chrome.ensureTabAvailable();
+    expect(tab.targetId).toBe("NEW1");
   });
 });

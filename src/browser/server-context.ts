@@ -299,9 +299,10 @@ function createProfileContext(
       if (await isReachable(600)) {
         return;
       }
-      // Relay server is up, but no attached tab yet. Prompt user to attach.
+      // Relay server is up, but extension hasn't connected yet.
       throw new Error(
-        `Chrome extension relay is running, but no tab is connected. Click the OpenClaw Chrome extension icon on a tab to attach it (profile "${profile.name}").`,
+        `Chrome extension relay is running but the extension is not connected ` +
+          `(profile "${profile.name}"). Ensure the OpenClaw extension is installed and Chrome is running.`,
       );
     }
 
@@ -370,12 +371,6 @@ function createProfileContext(
     const profileState = getProfileState();
     const tabs1 = await listTabs();
     if (tabs1.length === 0) {
-      if (profile.driver === "extension") {
-        throw new Error(
-          `tab not found (no attached Chrome tabs for profile "${profile.name}"). ` +
-            "Click the OpenClaw Browser Relay toolbar icon on the tab you want to control (badge ON).",
-        );
-      }
       await openTab("about:blank");
     }
 

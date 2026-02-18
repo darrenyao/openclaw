@@ -26,6 +26,14 @@ const childSessionToTab = new Map()
 /** @type {Map<number, {resolve:(v:any)=>void, reject:(e:Error)=>void}>} */
 const pending = new Map()
 
+const AUTO_CONNECT_ALARM = 'openclaw-auto-connect'
+const RETRY_ALARM = 'openclaw-retry'
+
+/** @type {number|null} */
+let managedGroupId = null
+/** @type {Set<number>} */
+const managedTabs = new Set()
+
 function nowStack() {
   try {
     return new Error().stack || ''
@@ -117,6 +125,16 @@ async function ensureRelayConnection() {
   }
 }
 
+async function tryAutoConnect() {
+  if (relayWs && relayWs.readyState === WebSocket.OPEN) return
+  try {
+    await ensureRelayConnection()
+    void chrome.alarms.clear(RETRY_ALARM)
+  } catch {
+    void chrome.alarms.create(RETRY_ALARM, { delayInMinutes: 1 })
+  }
+}
+
 function onRelayClosed(reason) {
   relayWs = null
   for (const [id, p] of pending.entries()) {
@@ -135,6 +153,9 @@ function onRelayClosed(reason) {
   tabs.clear()
   tabBySession.clear()
   childSessionToTab.clear()
+
+  // Schedule automatic reconnection
+  void chrome.alarms.create(RETRY_ALARM, { delayInMinutes: 0.5 })
 }
 
 function sendToRelay(payload) {
@@ -290,11 +311,27 @@ async function detachTab(tabId, reason) {
     // ignore
   }
 
+  managedTabs.delete(tabId)
   setBadge(tabId, 'off')
   void chrome.action.setTitle({
     tabId,
     title: 'OpenClaw Browser Relay (click to attach/detach)',
   })
+}
+
+async function ensureManagedGroup(tabId) {
+  if (managedGroupId !== null) {
+    const group = await chrome.tabGroups.get(managedGroupId).catch(() => null)
+    if (!group) managedGroupId = null
+  }
+  if (managedGroupId !== null) {
+    await chrome.tabs.group({ tabIds: [tabId], groupId: managedGroupId })
+    return managedGroupId
+  }
+  const groupId = await chrome.tabs.group({ tabIds: [tabId] })
+  managedGroupId = groupId
+  await chrome.tabGroups.update(groupId, { title: 'OpenClaw', color: 'orange', collapsed: false })
+  return groupId
 }
 
 async function connectOrToggleForActiveTab() {
@@ -371,6 +408,8 @@ async function handleForwardCdpCommand(msg) {
     const tab = await chrome.tabs.create({ url, active: false })
     if (!tab.id) throw new Error('Failed to create tab')
     await new Promise((r) => setTimeout(r, 100))
+    await ensureManagedGroup(tab.id)
+    managedTabs.add(tab.id)
     const attached = await attachTab(tab.id)
     return { targetId: attached.targetId }
   }
@@ -446,6 +485,25 @@ function onDebuggerDetach(source, reason) {
 }
 
 chrome.action.onClicked.addListener(() => void connectOrToggleForActiveTab())
+
+// Chrome startup → delayed auto-connect (relay may not be ready yet)
+chrome.runtime.onStartup.addListener(() => {
+  void chrome.alarms.create(AUTO_CONNECT_ALARM, { delayInMinutes: 0.1 })
+})
+
+// Alarm triggers → attempt auto-connect
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === AUTO_CONNECT_ALARM || alarm.name === RETRY_ALARM) {
+    void tryAutoConnect()
+  }
+})
+
+// Auto-capture child tabs opened from managed tabs into the same group
+chrome.tabs.onCreated.addListener((tab) => {
+  if (!tab.id || !tab.openerTabId) return
+  if (!managedTabs.has(tab.openerTabId)) return
+  void ensureManagedGroup(tab.id).then(() => managedTabs.add(tab.id))
+})
 
 chrome.runtime.onInstalled.addListener(() => {
   // Useful: first-time instructions.

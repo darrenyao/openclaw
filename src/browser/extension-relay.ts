@@ -475,6 +475,44 @@ export async function ensureChromeExtensionRelayServer(opts: {
       return;
     }
 
+    if (
+      (path === "/json/new" || path === "/json/new/") &&
+      (req.method === "GET" || req.method === "PUT")
+    ) {
+      const tabUrl =
+        url.searchParams.get("url") ??
+        (decodeURIComponent(url.search.replace(/^\?/, "")) || "about:blank");
+      if (!extensionWs) {
+        res.writeHead(503);
+        res.end("Extension not connected");
+        return;
+      }
+
+      const id = nextExtensionId++;
+      void (async () => {
+        try {
+          const result = (await sendToExtension({
+            id,
+            method: "forwardCDPCommand",
+            params: { method: "Target.createTarget", params: { url: tabUrl } },
+          })) as { targetId?: string };
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              id: result?.targetId ?? "",
+              type: "page",
+              url: tabUrl,
+              webSocketDebuggerUrl: cdpWsUrl,
+            }),
+          );
+        } catch (err) {
+          res.writeHead(500);
+          res.end(err instanceof Error ? err.message : String(err));
+        }
+      })();
+      return;
+    }
+
     res.writeHead(404);
     res.end("not found");
   });
@@ -505,8 +543,14 @@ export async function ensureChromeExtensionRelayServer(opts: {
         return;
       }
       if (extensionWs) {
-        rejectUpgrade(socket, 409, "Extension already connected");
-        return;
+        // Replace stale connection (e.g. service worker restart)
+        try {
+          extensionWs.close(1001, "replaced");
+        } catch {
+          // ignore
+        }
+        extensionWs = null;
+        connectedTargets.clear();
       }
       wssExtension.handleUpgrade(req, socket, head, (ws) => {
         wssExtension.emit("connection", ws, req);

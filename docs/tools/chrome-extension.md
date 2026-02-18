@@ -2,6 +2,7 @@
 summary: "Chrome extension: let OpenClaw drive your existing Chrome tab"
 read_when:
   - You want the agent to drive an existing Chrome tab (toolbar button)
+  - You want unattended / headless Chrome automation (auto-attach)
   - You need remote Gateway + local browser automation via Tailscale
   - You want to understand the security implications of browser takeover
 title: "Chrome Extension"
@@ -77,7 +78,39 @@ openclaw browser create-profile \
   --color "#00AA00"
 ```
 
+## Auto-attach (headless / unattended mode)
+
+The extension automatically connects to the relay server when Chrome starts — no manual click required. This is designed for unattended setups (e.g. Mac Mini running as a headless agent host).
+
+**How it works:**
+
+1. Chrome launches → service worker fires `onStartup`
+2. After a ~6 second delay (to let the relay start), the extension attempts a WebSocket connection
+3. If the relay isn't ready yet, it retries every 1 minute
+4. If a connected session drops, it retries every 30 seconds
+5. Once connected, the agent can create tabs programmatically via `Target.createTarget`
+
+**Setup for Mac Mini / unattended host:**
+
+1. Install the extension (see above)
+2. Add Chrome to macOS Login Items (System Settings → General → Login Items)
+3. Start the OpenClaw gateway (`openclaw gateway`)
+4. Reboot — Chrome auto-starts, extension auto-connects, agent can browse with your login cookies
+
+Verify the extension connected:
+
+```bash
+curl http://127.0.0.1:18792/extension/status
+# → {"connected":true}
+```
+
+### Tab Group isolation
+
+Agent-created tabs are automatically placed in an orange **"OpenClaw"** tab group. Child tabs (link clicks opening new tabs) are captured into the same group. Your personal tabs remain untouched.
+
 ## Attach / detach (toolbar button)
+
+Manual attach/detach still works exactly as before:
 
 - Open the tab you want OpenClaw to control.
 - Click the extension icon.
@@ -86,9 +119,9 @@ openclaw browser create-profile \
 
 ## Which tab does it control?
 
-- It does **not** automatically control “whatever tab you’re looking at”.
-- It controls **only the tab(s) you explicitly attached** by clicking the toolbar button.
-- To switch: open the other tab and click the extension icon there.
+**In manual mode:** it controls only the tab(s) you explicitly attached by clicking the toolbar button.
+
+**In auto-attach mode:** the agent creates its own tabs (grouped under "OpenClaw"). It does not touch your existing tabs unless you manually attach one.
 
 ## Badge + common errors
 
