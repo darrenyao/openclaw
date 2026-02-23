@@ -13,4 +13,5 @@ public enum OpenClawCapability: String, Codable, Sendable {
     case calendar
     case reminders
     case motion
+    case health
 }

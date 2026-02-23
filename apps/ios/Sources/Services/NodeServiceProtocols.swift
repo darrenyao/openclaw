@@ -65,6 +65,15 @@ protocol MotionServicing: Sendable {
     func pedometer(params: OpenClawPedometerParams) async throws -> OpenClawPedometerPayload
 }
 
+protocol HealthKitServicing: Sendable {
+    func query(params: OpenClawHealthQueryParams) async throws -> OpenClawHealthQueryPayload
+    func summary(params: OpenClawHealthSummaryParams) async throws -> OpenClawHealthSummaryPayload
+    func subscribe(
+        types: [OpenClawHealthDataType],
+        onUpdate: @escaping @Sendable (OpenClawHealthUpdatePayload) -> Void) async throws
+    func unsubscribe(types: [OpenClawHealthDataType]) async
+}
+
 struct WatchMessagingStatus: Sendable, Equatable {
     var supported: Bool
     var paired: Bool
