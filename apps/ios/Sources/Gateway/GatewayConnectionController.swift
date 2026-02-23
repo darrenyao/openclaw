@@ -6,6 +6,7 @@ import CryptoKit
 import EventKit
 import Foundation
 import Darwin
+import HealthKit
 import OpenClawKit
 import Network
 import Observation
@@ -810,6 +811,9 @@ final class GatewayConnectionController {
         if Self.motionAvailable() {
             caps.append(OpenClawCapability.motion.rawValue)
         }
+        if HKHealthStore.isHealthDataAvailable() {
+            caps.append(OpenClawCapability.health.rawValue)
+        }
 
         return caps
     }
@@ -869,6 +873,12 @@ final class GatewayConnectionController {
             commands.append(OpenClawMotionCommand.activity.rawValue)
             commands.append(OpenClawMotionCommand.pedometer.rawValue)
         }
+        if caps.contains(OpenClawCapability.health.rawValue) {
+            commands.append(OpenClawHealthCommand.query.rawValue)
+            commands.append(OpenClawHealthCommand.summary.rawValue)
+            commands.append(OpenClawHealthCommand.subscribe.rawValue)
+            commands.append(OpenClawHealthCommand.unsubscribe.rawValue)
+        }
 
         return commands
     }
@@ -899,6 +909,17 @@ final class GatewayConnectionController {
         let pedometerStatus = CMPedometer.authorizationStatus()
         permissions["motion"] =
             motionStatus == .authorized || pedometerStatus == .authorized
+
+        if HKHealthStore.isHealthDataAvailable() {
+            let healthStore = HKHealthStore()
+            let stepStatus = healthStore.authorizationStatus(for: HKQuantityType(.stepCount))
+            let heartStatus = healthStore.authorizationStatus(for: HKQuantityType(.heartRate))
+            let sleepStatus = healthStore.authorizationStatus(for: HKCategoryType(.sleepAnalysis))
+            permissions["health"] =
+                stepStatus == .sharingAuthorized ||
+                heartStatus == .sharingAuthorized ||
+                sleepStatus == .sharingAuthorized
+        }
 
         let watchStatus = WatchMessagingService.currentStatusSnapshot()
         permissions["watchSupported"] = watchStatus.supported
