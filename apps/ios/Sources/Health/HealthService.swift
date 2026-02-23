@@ -156,7 +156,7 @@ actor HealthService: HealthKitServicing {
             // Skip if already subscribed
             if observerQueries[objectType] != nil { continue }
 
-            let query = HKObserverQuery(sampleType: sampleType) { [weak self] _, completionHandler, error in
+            let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { [weak self] _, completionHandler, error in
                 guard error == nil, let self else {
                     completionHandler()
                     return

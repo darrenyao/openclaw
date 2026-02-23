@@ -39,6 +39,7 @@ private final class NotificationInvokeLatch<T: Sendable>: @unchecked Sendable {
 }
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class NodeAppModel {
     private let deepLinkLogger = Logger(subsystem: "ai.openclaw.ios", category: "DeepLink")
     private let pushWakeLogger = Logger(subsystem: "ai.openclaw.ios", category: "PushWake")
@@ -1460,9 +1461,10 @@ final class NodeAppModel {
             try await self.healthService.subscribe(types: types) { [weak self] update in
                 guard let self else { return }
                 Task {
-                    if let json = try? Self.encodePayload(update),
-                       let jsonString = String(data: json, encoding: .utf8) {
-                        await self.nodeGateway.sendEvent(event: "health.update", payloadJSON: jsonString)
+                    if let data = try? JSONEncoder().encode(update),
+                       let json = String(data: data, encoding: .utf8)
+                    {
+                        await self.nodeGateway.sendEvent(event: "health.update", payloadJSON: json)
                     }
                 }
             }

@@ -104,12 +104,14 @@ targets:
           - ai.openclaw.ios.bgrefresh
         NSLocalNetworkUsageDescription: OpenClaw discovers and connects to your OpenClaw gateway on the local network.
         NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
           NSAllowsArbitraryLoadsInWebContent: true
         NSBonjourServices:
           - _openclaw-gw._tcp
         NSCameraUsageDescription: OpenClaw can capture photos or short video clips when requested via the gateway.
         NSLocationWhenInUseUsageDescription: OpenClaw uses your location when you allow location sharing.
         NSLocationAlwaysAndWhenInUseUsageDescription: OpenClaw can share your location in the background when you enable Always.
+        NSHealthShareUsageDescription: OpenClaw reads your health data (steps, heart rate, sleep) to provide personalized insights when requested by the agent.
         NSMicrophoneUsageDescription: OpenClaw needs microphone access for voice wake.
         NSSpeechRecognitionUsageDescription: OpenClaw uses on-device speech recognition for voice wake.
         UISupportedInterfaceOrientations:
