@@ -910,16 +910,10 @@ final class GatewayConnectionController {
         permissions["motion"] =
             motionStatus == .authorized || pedometerStatus == .authorized
 
-        if HKHealthStore.isHealthDataAvailable() {
-            let healthStore = HKHealthStore()
-            let stepStatus = healthStore.authorizationStatus(for: HKQuantityType(.stepCount))
-            let heartStatus = healthStore.authorizationStatus(for: HKQuantityType(.heartRate))
-            let sleepStatus = healthStore.authorizationStatus(for: HKCategoryType(.sleepAnalysis))
-            permissions["health"] =
-                stepStatus == .sharingAuthorized ||
-                heartStatus == .sharingAuthorized ||
-                sleepStatus == .sharingAuthorized
-        }
+        // HealthKit does not expose read authorization status for privacy reasons.
+        // We report availability only; actual per-type authorization is handled lazily
+        // by HealthService.ensureAuthorization() on first query/subscribe call.
+        permissions["health"] = HKHealthStore.isHealthDataAvailable()
 
         let watchStatus = WatchMessagingService.currentStatusSnapshot()
         permissions["watchSupported"] = watchStatus.supported

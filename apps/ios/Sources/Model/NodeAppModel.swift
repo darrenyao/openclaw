@@ -1431,19 +1431,31 @@ final class NodeAppModel {
     private func handleHealthInvoke(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
         switch req.command {
         case OpenClawHealthCommand.query.rawValue:
-            let params = try Self.decodeParams(OpenClawHealthQueryParams.self, from: req.paramsJSON)
+            guard let params = try? Self.decodeParams(OpenClawHealthQueryParams.self, from: req.paramsJSON) else {
+                return BridgeInvokeResponse(
+                    id: req.id, ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "HEALTH_INVALID_PARAMS: 'type' is required"))
+            }
             let payload = try await self.healthService.query(params: params)
             let json = try Self.encodePayload(payload)
             return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: json)
 
         case OpenClawHealthCommand.summary.rawValue:
-            let params = try Self.decodeParams(OpenClawHealthSummaryParams.self, from: req.paramsJSON)
+            guard let params = try? Self.decodeParams(OpenClawHealthSummaryParams.self, from: req.paramsJSON) else {
+                return BridgeInvokeResponse(
+                    id: req.id, ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "HEALTH_INVALID_PARAMS: 'type' is required"))
+            }
             let payload = try await self.healthService.summary(params: params)
             let json = try Self.encodePayload(payload)
             return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: json)
 
         case OpenClawHealthCommand.subscribe.rawValue:
-            let params = try Self.decodeParams(OpenClawHealthSubscribeParams.self, from: req.paramsJSON)
+            guard let params = try? Self.decodeParams(OpenClawHealthSubscribeParams.self, from: req.paramsJSON) else {
+                return BridgeInvokeResponse(
+                    id: req.id, ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "HEALTH_INVALID_PARAMS: 'types' array is required"))
+            }
             let types = params.types.compactMap { OpenClawHealthDataType(rawValue: $0) }
             try await self.healthService.subscribe(types: types) { [weak self] update in
                 guard let self else { return }
@@ -1457,7 +1469,11 @@ final class NodeAppModel {
             return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: nil)
 
         case OpenClawHealthCommand.unsubscribe.rawValue:
-            let params = try Self.decodeParams(OpenClawHealthSubscribeParams.self, from: req.paramsJSON)
+            guard let params = try? Self.decodeParams(OpenClawHealthSubscribeParams.self, from: req.paramsJSON) else {
+                return BridgeInvokeResponse(
+                    id: req.id, ok: false,
+                    error: OpenClawNodeError(code: .invalidRequest, message: "HEALTH_INVALID_PARAMS: 'types' array is required"))
+            }
             let types = params.types.compactMap { OpenClawHealthDataType(rawValue: $0) }
             await self.healthService.unsubscribe(types: types)
             return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: nil)

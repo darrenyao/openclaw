@@ -2,9 +2,16 @@ import Foundation
 import HealthKit
 import OpenClawKit
 
-final class HealthService: HealthKitServicing {
+actor HealthService: HealthKitServicing {
     private let store = HKHealthStore()
     private var observerQueries: [HKObjectType: HKObserverQuery] = [:]
+
+    deinit {
+        for (objectType, query) in observerQueries {
+            store.stop(query)
+            store.disableBackgroundDelivery(for: objectType) { _, _ in }
+        }
+    }
 
     // MARK: - Authorization
 
@@ -155,7 +162,10 @@ final class HealthService: HealthKitServicing {
                     return
                 }
 
-                // Fetch latest samples when notified
+                // Notify HealthKit immediately that we received the update.
+                // Fetch latest samples asynchronously — the data will still be there.
+                completionHandler()
+
                 Task {
                     let params = OpenClawHealthQueryParams(
                         type: dataType.rawValue,
@@ -167,7 +177,6 @@ final class HealthService: HealthKitServicing {
                             latestSamples: payload.samples)
                         onUpdate(update)
                     }
-                    completionHandler()
                 }
             }
 

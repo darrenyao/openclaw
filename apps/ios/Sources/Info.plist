@@ -65,6 +65,7 @@
 	<array>
 		<string>audio</string>
 		<string>remote-notification</string>
+		<string>processing</string>
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
