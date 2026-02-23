@@ -670,19 +670,22 @@ final class GatewayConnectionController {
     }
 
     private func shouldRequireTLS(host: String) -> Bool {
-        !Self.isLoopbackHost(host) && !Self.isIPAddress(host)
+        !Self.isLoopbackHost(host) && !Self.isPrivateNetworkIP(host)
     }
 
-    private static func isIPAddress(_ rawHost: String) -> Bool {
+    private static func isPrivateNetworkIP(_ rawHost: String) -> Bool {
         let host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        // IPv4
-        let ipv4Parts = host.split(separator: ".")
-        if ipv4Parts.count == 4, ipv4Parts.allSatisfy({ Int($0) != nil }) {
-            return true
-        }
-        // IPv6
-        if host.contains(":") { return true }
-        return false
+        let parts = host.split(separator: ".")
+        guard parts.count == 4 else { return false }
+        let octets = parts.compactMap { Int($0) }
+        guard octets.count == 4 else { return false }
+        let a = octets[0], b = octets[1]
+        // 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 100.64-127.x.x (CGNAT/Tailscale), 30.x.x.x (corp)
+        return a == 10
+            || a == 30
+            || (a == 172 && b >= 16 && b <= 31)
+            || (a == 192 && b == 168)
+            || (a == 100 && b >= 64 && b <= 127)
     }
 
     private func shouldForceTLS(host: String) -> Bool {
