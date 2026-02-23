@@ -34,6 +34,13 @@ const PHOTOS_COMMANDS = ["photos.latest"];
 
 const MOTION_COMMANDS = ["motion.activity", "motion.pedometer"];
 
+const HEALTH_COMMANDS = [
+  "health.query",
+  "health.summary",
+  "health.subscribe",
+  "health.unsubscribe",
+];
+
 const SMS_DANGEROUS_COMMANDS = ["sms.send"];
 
 // iOS nodes don't implement system.run/which, but they do support notifications.
@@ -63,6 +70,7 @@ const PLATFORM_DEFAULTS: Record<string, string[]> = {
     ...REMINDERS_COMMANDS,
     ...PHOTOS_COMMANDS,
     ...MOTION_COMMANDS,
+    ...HEALTH_COMMANDS,
     ...IOS_SYSTEM_COMMANDS,
   ],
   android: [
