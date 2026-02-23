@@ -96,6 +96,7 @@ final class NodeAppModel {
     private let calendarService: any CalendarServicing
     private let remindersService: any RemindersServicing
     private let motionService: any MotionServicing
+    private let healthService: any HealthKitServicing
     private let watchMessagingService: any WatchMessagingServicing
     var lastAutoA2uiURL: String?
     private var pttVoiceWakeSuspended = false
@@ -140,6 +141,7 @@ final class NodeAppModel {
         calendarService: any CalendarServicing = CalendarService(),
         remindersService: any RemindersServicing = RemindersService(),
         motionService: any MotionServicing = MotionService(),
+        healthService: any HealthKitServicing = HealthService(),
         watchMessagingService: any WatchMessagingServicing = WatchMessagingService(),
         talkMode: TalkModeManager = TalkModeManager())
     {
@@ -154,6 +156,7 @@ final class NodeAppModel {
         self.calendarService = calendarService
         self.remindersService = remindersService
         self.motionService = motionService
+        self.healthService = healthService
         self.watchMessagingService = watchMessagingService
         self.talkMode = talkMode
         self.apnsDeviceTokenHex = UserDefaults.standard.string(forKey: Self.apnsDeviceTokenUserDefaultsKey)
@@ -1425,6 +1428,48 @@ final class NodeAppModel {
         }
     }
 
+    private func handleHealthInvoke(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
+        switch req.command {
+        case OpenClawHealthCommand.query.rawValue:
+            let params = try Self.decodeParams(OpenClawHealthQueryParams.self, from: req.paramsJSON)
+            let payload = try await self.healthService.query(params: params)
+            let json = try Self.encodePayload(payload)
+            return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: json)
+
+        case OpenClawHealthCommand.summary.rawValue:
+            let params = try Self.decodeParams(OpenClawHealthSummaryParams.self, from: req.paramsJSON)
+            let payload = try await self.healthService.summary(params: params)
+            let json = try Self.encodePayload(payload)
+            return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: json)
+
+        case OpenClawHealthCommand.subscribe.rawValue:
+            let params = try Self.decodeParams(OpenClawHealthSubscribeParams.self, from: req.paramsJSON)
+            let types = params.types.compactMap { OpenClawHealthDataType(rawValue: $0) }
+            try await self.healthService.subscribe(types: types) { [weak self] update in
+                guard let self else { return }
+                Task {
+                    if let json = try? Self.encodePayload(update),
+                       let jsonString = String(data: json, encoding: .utf8) {
+                        await self.nodeGateway.sendEvent(event: "health.update", payloadJSON: jsonString)
+                    }
+                }
+            }
+            return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: nil)
+
+        case OpenClawHealthCommand.unsubscribe.rawValue:
+            let params = try Self.decodeParams(OpenClawHealthSubscribeParams.self, from: req.paramsJSON)
+            let types = params.types.compactMap { OpenClawHealthDataType(rawValue: $0) }
+            await self.healthService.unsubscribe(types: types)
+            return BridgeInvokeResponse(id: req.id, ok: true, payloadJSON: nil)
+
+        default:
+            return BridgeInvokeResponse(
+                id: req.id,
+                ok: false,
+                error: OpenClawNodeError(code: .invalidRequest, message: "INVALID_REQUEST: unknown health command"))
+        }
+    }
+
     private func handleTalkInvoke(_ req: BridgeInvokeRequest) async throws -> BridgeInvokeResponse {
         switch req.command {
         case OpenClawTalkCommand.pttStart.rawValue:
@@ -1574,6 +1619,16 @@ private extension NodeAppModel {
         ]) { [weak self] req in
             guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
             return try await self.handleMotionInvoke(req)
+        }
+
+        register([
+            OpenClawHealthCommand.query.rawValue,
+            OpenClawHealthCommand.summary.rawValue,
+            OpenClawHealthCommand.subscribe.rawValue,
+            OpenClawHealthCommand.unsubscribe.rawValue,
+        ]) { [weak self] req in
+            guard let self else { throw NodeCapabilityRouter.RouterError.handlerUnavailable }
+            return try await self.handleHealthInvoke(req)
         }
 
         register([
